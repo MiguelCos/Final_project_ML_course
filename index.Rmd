@@ -1,0 +1,136 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Miguel Cosenza"
+date: "30 de diciembre de 2018"
+output: html_document
+---
+
+## Introduction  
+
+The aim of this report is use accelerometer data from different parts of the body as a way to identify if the user is correctly performing a particular type of exercise. The data was specifically created as a training dataset, in which 6 users performed an exercise following specific directives. This directives were used to classify if the exercise was performed correctly. The training set consists of 5 classes from A to E, in which "A" indicate well-performed excersie, while the others indicate some kind of incorrect execution of the exercise.  
+
+The code presented below shows all the steps related to data preparation, feature selection and model building for predictions.  
+
+## Data preparation 
+
+#### Load required dataset  
+Load required packages and datasets to the R session. Data was downloaded to the working directory. 
+```{r message=FALSE, error=FALSE,comment=FALSE, warning=FALSE, echo=TRUE}
+#### Loading packages ####
+
+library(tidyverse)
+library(caret)
+
+#### Load datasets ####
+
+pml_training <- read_csv("pml-training.csv")
+pml_testing <- read_csv("pml-testing.csv")
+```
+
+### Selection of variables  
+
+The training dataset `pml_training` will be used for model building, but not all variables (`r dim(pml_training)`) are relevant as predictors.  
+
+#### Variables with near zero variance were eliminated.  
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=TRUE}
+# Near zero variance variables elimination 
+
+nvz <- nearZeroVar(pml_training, saveMetrics = TRUE)
+nvz <- mutate(nvz, names = row.names(nvz))
+nvz <- filter(nvz, nzv == TRUE)
+
+train_1 <- select(pml_training, -one_of(nvz$names))
+```
+
+#### Elimination of columns with high amounts of NAs  
+
+Columns containing NAs were also discosidered for training the prediction algorithm.
+
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=TRUE}
+train_2 <- train_1[, colSums(is.na(train_1)) == 0]
+```
+
+#### Elimination of columns with not aparent predictive value.  
+
+The firsts 6 columns were also eliminated from the training data, since they were referred to features with no predictive importance, such as the name of the subject executing the movement, the time of the day, and others.  
+
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=TRUE}
+train_set <- select(train_2, -one_of(colnames(train_2)[1:6]))
+```  
+
+## Data slicing and cross-validation  
+
+The new `train_set` was sliced into one training and one testing set for cross validation before applying the model for prediction.  70% of the observations were used for training. 
+
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=TRUE}
+#### Data slicing ####
+set.seed(1001)
+
+train_index <- createDataPartition(train_set$classe, p = 0.7, list = FALSE)
+
+training <- train_set[train_index,]
+testing <- train_set[-train_index,]
+```
+
+## Model building  
+
+For the purpose of this project and noticing the multi-class condition of the required prediction, the random forest model was selected. A simple cross validation method was set for 5 iterations.
+
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=TRUE}
+trainCVmethod <- trainControl(method="cv", number=5, verboseIter=FALSE)
+modelrf1 <- train(classe ~ ., data = training, method = "rf", trControl = trainCVmethod)
+``` 
+
+The model showed an Accuracy of 0.989, based on 49 predictors. 
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=TRUE}
+modelrf1
+```
+
+And the final model used a number of trees = 500 with 2 variables tried at each split. The estimate of error rate at this point was calculated at 0.79% after cross-validation.  
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=TRUE}
+modelrf1$finalModel
+```
+
+## Model evaluation  
+
+The model was then evaluated agains the testing set selected from the training data. The Confusion Matrix based on this prediction shows fairly good accuracy for the model with 0.9934. 
+
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=TRUE}
+prediction1 <- predict(modelrf1, newdata = testing)
+confusionMatrix(factor(testing$classe), prediction1)
+```
+
+## Prediction from the testing set  
+
+The same features and variables eliminated for the training data were also eliminated in the testing set.  
+
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=TRUE}
+# Select features and variables in the test set 
+
+# Near zero variance variables elimination 
+
+nvz <- nearZeroVar(pml_training, saveMetrics = TRUE)
+nvz <- mutate(nvz, names = row.names(nvz))
+nvz <- filter(nvz, nzv == TRUE)
+
+test_1 <- select(pml_testing, -one_of(nvz$names))
+
+# Eliminate colunms with too much NAs
+
+test_2 <- test_1[, colSums(is.na(train_1)) == 0]
+
+# Eliminate first columns with no aparent meaning for prediction.
+
+test_set <- select(test_2, -one_of(colnames(train_2)[1:6], "problem_id"))
+```
+
+### Prediction of exercise execution from the selected features of accelerometer data  
+
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=TRUE}
+blind_pred <- predict(modelrf1, newdata = test_set)
+```
+
+#### The contingency table shows each of the tested data points and their predicted exercise execution classes.
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=TRUE}
+table(blind_pred, pml_testing$problem_id)
+```
